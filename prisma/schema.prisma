@@ -1,0 +1,126 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  passwordHash    String
+  timezone        String?  // IANA timezone string (e.g., "America/New_York")
+  notificationTime String? // HH:MM format (e.g., "19:00")
+  goal            String?  // User's goal/mindset selection
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  devices         Device[]
+  plaidItems      PlaidItem[]
+  accountSelection AccountSelection?
+  transactions    Transaction[]
+  balanceSnapshots BalanceSnapshot[]
+  dailyReports    DailyReport[]
+}
+
+model Device {
+  id        String   @id @default(cuid())
+  userId    String
+  apnsToken String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PlaidItem {
+  id                  String   @id @default(cuid())
+  userId              String
+  accessTokenEncrypted String  // Encrypted Plaid access token
+  itemId              String   @unique // Plaid item_id
+  institutionName    String?
+  syncCursor         String?  // Last sync cursor for pagination
+  status             String?  // Status: active, error, expired, revoked
+  lastError          String?  // Last error message or code
+  lastWebhookAt      DateTime? // Last time a webhook was received
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model AccountSelection {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  creditAccountId String? // Plaid account_id for credit card
+  checkingAccountId String? // Plaid account_id for checking account
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Transaction {
+  id                String   @id @default(cuid())
+  userId            String
+  accountId         String   // Plaid account_id
+  plaidTransactionId String  @unique // Plaid transaction_id
+  date              DateTime // Transaction date (user's local timezone)
+  name              String
+  amount            Decimal  // Positive for debits, negative for credits
+  pending           Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, date])
+  @@index([accountId])
+}
+
+model BalanceSnapshot {
+  id        String   @id @default(cuid())
+  userId    String
+  accountId String   // Plaid account_id
+  available Decimal? // Available balance
+  current   Decimal? // Current balance
+  asOf      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, accountId])
+}
+
+model DailyReport {
+  id              String    @id @default(cuid())
+  userId          String
+  date            DateTime  // Local date (start of day in user's timezone)
+  totalAmount     Decimal   @default(0)
+  transactionCount Int      @default(0)
+  lastComputedAt  DateTime  @default(now())
+  pushSentAt      DateTime? // When push notification was sent
+  markedPaidAt    DateTime? // When user marked as paid
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([userId, date])
+}
+
+
+

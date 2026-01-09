@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+*.log
+npm-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# APNs keys
+*.p8
+apns-key.p8
+
+# Database
+*.db
+*.sqlite
+
+# Prisma
+prisma/migrations/
+
+
+
+

@@ -1,0 +1,31 @@
+import Foundation
+
+enum Endpoints {
+    // Auth
+    static let register = "/auth/register"
+    static let login = "/auth/login"
+    static let me = "/auth/me"
+    
+    // Plaid
+    static let createLinkToken = "/plaid/create-link-token"
+    static let exchangePublicToken = "/plaid/exchange-public-token"
+    static let getAccounts = "/plaid/accounts"
+    static let selectAccounts = "/plaid/select-accounts"
+    
+    // Today
+    static let today = "/today"
+    static let todayTransactions = "/today/transactions"
+    static let markPaid = "/today/mark-paid"
+    
+    // History
+    static let history = "/history"
+    
+    // Settings
+    static let settings = "/settings"
+    
+    // Device
+    static let registerDevice = "/device/register"
+}
+
+
+
