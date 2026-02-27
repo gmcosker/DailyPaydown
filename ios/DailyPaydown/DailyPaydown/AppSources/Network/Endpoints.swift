@@ -19,6 +19,7 @@ enum Endpoints {
     static let testHistory = "/today/test/history"
     static let testTransactions = "/today/test/transactions"
     static let testResetPaid = "/today/test/reset-paid"
+    static let testNotification = "/today/test/notification"
     
     // History
     static let history = "/history"
@@ -26,6 +27,9 @@ enum Endpoints {
     // Settings
     static let settings = "/settings"
     
+    // Account
+    static let deleteAccount = "/auth/account"
+
     // Device
     static let registerDevice = "/device/register"
 }

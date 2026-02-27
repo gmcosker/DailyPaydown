@@ -8,6 +8,19 @@ struct SettingsView: View {
     @State private var showSaveSuccess = false
     @State private var saveError: String?
     @State private var hasLoadedSettings = false
+    @State private var isTestingNotification = false
+    @State private var testNotificationMessage: String?
+    @State private var testNotificationSuccess = false
+    @State private var showPlaidLink = false
+    @State private var plaidConnectionMessage: String?
+    @State private var plaidConnectionSuccess = false
+    @State private var showAccountSelection = false
+    @State private var accounts: [Account] = []
+    @State private var selectedCreditAccountId: String?
+    @State private var selectedCheckingAccountId: String?
+    @State private var isLoadingAccounts = false
+    @State private var showDeleteConfirmation = false
+    @State private var isDeletingAccount = false
     
     private let apiClient = APIClient.shared
     
@@ -44,16 +57,59 @@ struct SettingsView: View {
                 
                 Section {
                     Button("Reconnect Plaid") {
-                        HapticFeedback.light()
-                        // TODO: Implement Plaid reconnection
+                        HapticFeedback.medium()
+                        showPlaidLink = true
                     }
                     
-                    Button("Change Selected Accounts") {
+                    Button(action: {
                         HapticFeedback.light()
-                        // TODO: Implement account selection change
+                        fetchAccountsForSelection()
+                    }) {
+                        HStack {
+                            if isLoadingAccounts {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            }
+                            Text("Change Selected Accounts")
+                        }
+                    }
+                    .disabled(isLoadingAccounts)
+                    
+                    if let message = plaidConnectionMessage {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundColor(plaidConnectionSuccess ? .green : .orange)
                     }
                 } header: {
                     Text("Bank Connection")
+                }
+                
+                Section {
+                    Button(action: {
+                        HapticFeedback.medium()
+                        testNotification()
+                    }) {
+                        HStack {
+                            if isTestingNotification {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            } else {
+                                Image(systemName: "bell.badge")
+                            }
+                            Text("Test Push Notification")
+                        }
+                    }
+                    .disabled(isTestingNotification)
+                    
+                    if let message = testNotificationMessage {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundColor(testNotificationSuccess ? .green : .orange)
+                    }
+                } header: {
+                    Text("Testing")
+                } footer: {
+                    Text("This will send a push notification immediately. Requires APNs to be configured on the server and device to be registered.")
                 }
                 
                 Section {
@@ -61,10 +117,20 @@ struct SettingsView: View {
                 }
                 
                 Section {
-                    Button("Delete Account", role: .destructive) {
+                    Button(action: {
                         HapticFeedback.heavy()
-                        // TODO: Implement account deletion
+                        showDeleteConfirmation = true
+                    }) {
+                        HStack {
+                            if isDeletingAccount {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            }
+                            Text("Delete Account")
+                        }
+                        .foregroundColor(.red)
                     }
+                    .disabled(isDeletingAccount)
                 }
             }
             .navigationTitle("Settings")
@@ -91,19 +157,176 @@ struct SettingsView: View {
             .onAppear {
                 loadSettings()
             }
-            .onChange(of: notificationTime) {
+            .onChange(of: notificationTime) { _ in
                 if hasLoadedSettings {
                     saveSettings()
                 }
             }
-            .onChange(of: timezone) {
+            .onChange(of: timezone) { _ in
                 if hasLoadedSettings {
                     saveSettings()
                 }
             }
-            .onChange(of: goal) {
+            .onChange(of: goal) { _ in
                 if hasLoadedSettings {
                     saveSettings()
+                }
+            }
+            .fullScreenCover(isPresented: $showPlaidLink) {
+                PlaidLinkView(
+                    onSuccess: { publicToken, itemId in
+                        Task {
+                            await exchangePublicToken(publicToken: publicToken)
+                        }
+                    }
+                )
+            }
+            .sheet(isPresented: $showAccountSelection) {
+                NavigationStack {
+                    AccountSelectionView(
+                        accounts: accounts,
+                        selectedCreditAccountId: $selectedCreditAccountId,
+                        selectedCheckingAccountId: $selectedCheckingAccountId,
+                        onContinue: {
+                            HapticFeedback.medium()
+                            Task {
+                                await saveAccountSelection()
+                            }
+                        },
+                        onAddAnotherBank: {
+                            showAccountSelection = false
+                            HapticFeedback.light()
+                            showPlaidLink = true
+                        }
+                    )
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") {
+                                showAccountSelection = false
+                            }
+                        }
+                    }
+                }
+            }
+            .alert("Delete Account", isPresented: $showDeleteConfirmation) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete", role: .destructive) {
+                    deleteAccount()
+                }
+            } message: {
+                Text("This will permanently delete your account and all associated data. This action cannot be undone.")
+            }
+        }
+    }
+    
+    private func exchangePublicToken(publicToken: String) async {
+        do {
+            struct ExchangeRequest: Codable {
+                let publicToken: String
+            }
+            
+            struct ExchangeResponse: Codable {
+                let success: Bool
+                let itemId: String?
+            }
+            
+            let response: ExchangeResponse = try await apiClient.request(
+                endpoint: Endpoints.exchangePublicToken,
+                method: "POST",
+                body: ExchangeRequest(publicToken: publicToken)
+            )
+            
+            await MainActor.run {
+                showPlaidLink = false
+                if response.success {
+                    plaidConnectionSuccess = true
+                    plaidConnectionMessage = "Bank account reconnected successfully!"
+                    HapticFeedback.success()
+                } else {
+                    plaidConnectionSuccess = false
+                    plaidConnectionMessage = "Failed to reconnect bank account"
+                    HapticFeedback.error()
+                }
+                
+                // Clear message after 5 seconds
+                Task {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    await MainActor.run {
+                        plaidConnectionMessage = nil
+                    }
+                }
+            }
+        } catch {
+            await MainActor.run {
+                showPlaidLink = false
+                plaidConnectionSuccess = false
+                plaidConnectionMessage = "Error: \(error.localizedDescription)"
+                HapticFeedback.error()
+                
+                // Clear message after 5 seconds
+                Task {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    await MainActor.run {
+                        plaidConnectionMessage = nil
+                    }
+                }
+            }
+        }
+    }
+    
+    private func testNotification() {
+        isTestingNotification = true
+        testNotificationMessage = nil
+        testNotificationSuccess = false
+        
+        Task {
+            do {
+                struct TestNotificationResponse: Codable {
+                    let success: Bool
+                    let message: String?
+                    let error: String?
+                    let details: String?
+                }
+                
+                let response: TestNotificationResponse = try await apiClient.request(
+                    endpoint: Endpoints.testNotification,
+                    method: "POST"
+                )
+                
+                await MainActor.run {
+                    isTestingNotification = false
+                    if response.success {
+                        testNotificationSuccess = true
+                        testNotificationMessage = response.message ?? "Notification sent successfully!"
+                        HapticFeedback.success()
+                    } else {
+                        testNotificationSuccess = false
+                        testNotificationMessage = response.message ?? response.error ?? "Failed to send notification. Check APNs configuration."
+                        HapticFeedback.error()
+                    }
+                    
+                    // Clear message after 5 seconds
+                    Task {
+                        try? await Task.sleep(nanoseconds: 5_000_000_000)
+                        await MainActor.run {
+                            testNotificationMessage = nil
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isTestingNotification = false
+                    testNotificationSuccess = false
+                    testNotificationMessage = "Error: \(error.localizedDescription)"
+                    HapticFeedback.error()
+                    
+                    // Clear message after 5 seconds
+                    Task {
+                        try? await Task.sleep(nanoseconds: 5_000_000_000)
+                        await MainActor.run {
+                            testNotificationMessage = nil
+                        }
+                    }
                 }
             }
         }
@@ -170,6 +393,122 @@ struct SettingsView: View {
                 print("Error saving settings: \(error)")
                 saveError = error.localizedDescription
                 HapticFeedback.error()
+            }
+        }
+    }
+    private func fetchAccountsForSelection() {
+        isLoadingAccounts = true
+
+        Task {
+            do {
+                let response: GetAccountsResponse = try await apiClient.request(
+                    endpoint: Endpoints.getAccounts
+                )
+
+                await MainActor.run {
+                    isLoadingAccounts = false
+                    accounts = response.accounts
+
+                    if accounts.isEmpty {
+                        plaidConnectionSuccess = false
+                        plaidConnectionMessage = "No accounts found. Try reconnecting your bank."
+                        HapticFeedback.warning()
+
+                        Task {
+                            try? await Task.sleep(nanoseconds: 5_000_000_000)
+                            await MainActor.run {
+                                plaidConnectionMessage = nil
+                            }
+                        }
+                    } else {
+                        showAccountSelection = true
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isLoadingAccounts = false
+                    plaidConnectionSuccess = false
+                    plaidConnectionMessage = "Failed to load accounts: \(error.localizedDescription)"
+                    HapticFeedback.error()
+
+                    Task {
+                        try? await Task.sleep(nanoseconds: 5_000_000_000)
+                        await MainActor.run {
+                            plaidConnectionMessage = nil
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func saveAccountSelection() async {
+        guard let creditAccountId = selectedCreditAccountId else {
+            HapticFeedback.warning()
+            return
+        }
+
+        do {
+            let request = SelectAccountsRequest(
+                creditAccountId: creditAccountId,
+                checkingAccountId: selectedCheckingAccountId
+            )
+            let _: [String: Bool] = try await apiClient.request(
+                endpoint: Endpoints.selectAccounts,
+                method: "POST",
+                body: request
+            )
+
+            await MainActor.run {
+                showAccountSelection = false
+                plaidConnectionSuccess = true
+                plaidConnectionMessage = "Accounts updated successfully!"
+                HapticFeedback.success()
+
+                Task {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    await MainActor.run {
+                        plaidConnectionMessage = nil
+                    }
+                }
+            }
+        } catch {
+            await MainActor.run {
+                plaidConnectionSuccess = false
+                plaidConnectionMessage = "Failed to update accounts: \(error.localizedDescription)"
+                HapticFeedback.error()
+
+                Task {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    await MainActor.run {
+                        plaidConnectionMessage = nil
+                    }
+                }
+            }
+        }
+    }
+
+    private func deleteAccount() {
+        isDeletingAccount = true
+
+        Task {
+            do {
+                let _: [String: Bool] = try await apiClient.request(
+                    endpoint: Endpoints.deleteAccount,
+                    method: "DELETE"
+                )
+
+                await MainActor.run {
+                    isDeletingAccount = false
+                    HapticFeedback.success()
+                    authManager.logout()
+                }
+            } catch {
+                await MainActor.run {
+                    isDeletingAccount = false
+                    saveError = "Failed to delete account: \(error.localizedDescription)"
+                    HapticFeedback.error()
+                }
             }
         }
     }

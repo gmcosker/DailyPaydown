@@ -224,6 +224,44 @@ router.get('/me', authenticateToken, async (req: AuthRequest, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /auth/account:
+ *   delete:
+ *     summary: Delete the authenticated user's account and all associated data
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Account deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ */
+router.delete('/account', authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.userId!;
+
+    // Delete user - all related data cascades automatically
+    await prisma.user.delete({
+      where: { id: userId },
+    });
+
+    logger.info('User account deleted', { userId });
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Delete account error', { error, userId: req.userId });
+    res.status(500).json({ error: 'Failed to delete account' });
+  }
+});
+
 export default router;
 
 
